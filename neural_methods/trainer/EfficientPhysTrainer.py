@@ -13,6 +13,30 @@ from neural_methods.model.EfficientPhys import EfficientPhys
 from neural_methods.trainer.BaseTrainer import BaseTrainer
 from tqdm import tqdm
 
+class EarlyStopping:
+    def __init__(self, patience=10, min_delta=0, start_epoch=5):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.start_epoch = start_epoch
+        self.counter = 0
+        self.best_loss = None
+
+    def __call__(self, epoch, val_loss):
+        if epoch < self.start_epoch:
+            return False
+        
+        if self.best_loss is None:
+            self.best_loss = val_loss
+        elif val_loss < self.best_loss - self.min_delta:
+            self.best_loss = val_loss
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False
+
+early_stopping = EarlyStopping(patience=5, min_delta=0.001, start_epoch=10)
 
 class EfficientPhysTrainer(BaseTrainer):
 
@@ -43,7 +67,7 @@ class EfficientPhysTrainer(BaseTrainer):
             self.num_train_batches = len(data_loader["train"])
             self.criterion = Neg_Pearson()
             self.optimizer = optim.AdamW(
-                self.model.parameters(), lr=config.TRAIN.LR, weight_decay=0)
+                self.model.parameters(), lr=config.TRAIN.LR, weight_decay=0.01)
             # See more details on the OneCycleLR scheduler here: https://pytorch.org/docs/stable/generated/torch.optim.lr_scheduler.OneCycleLR.html
             self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                 self.optimizer, max_lr=config.TRAIN.LR, epochs=config.TRAIN.EPOCHS, steps_per_epoch=self.num_train_batches)
@@ -101,7 +125,7 @@ class EfficientPhysTrainer(BaseTrainer):
 
             # Append the mean training loss for the epoch
             mean_training_losses.append(np.mean(train_loss))
-
+            val_loss = 0.0
             self.save_model(epoch)
             if not self.config.TEST.USE_LAST_EPOCH: 
                 valid_loss = self.valid(data_loader)
@@ -115,6 +139,10 @@ class EfficientPhysTrainer(BaseTrainer):
                     self.min_valid_loss = valid_loss
                     self.best_epoch = epoch
                     print("Update best model! Best epoch: {}".format(self.best_epoch))
+
+           # if early_stopping(epoch, valid_loss):
+            #    print("Early stopping")
+             #   break   
         if not self.config.TEST.USE_LAST_EPOCH: 
             print("best trained epoch: {}, min_val_loss: {}".format(self.best_epoch, self.min_valid_loss))
         if self.config.TRAIN.PLOT_LOSSES_AND_LR:
